@@ -37,7 +37,7 @@ fn main() {
     let mut output_file = file_setup(path);
 
     let camera = Camera::new(CameraCreateInfo{
-        samples_per_pixel: 500,
+        samples_per_pixel: 10,
         max_depth: 50,
         image_width: 400,
 
@@ -50,13 +50,12 @@ fn main() {
 
         ..Default::default()
     });
-    let mut progress = progress_bar_setup(camera.image_height());
 
     let mut img: RgbImage = ImageBuffer::new(camera.image_width(), camera.image_height());
 
     let world = get_world3();
 
-    camera.render(&world, &mut img, &mut progress);
+    camera.render(&world, &mut img);
 
     println!(
         "Ouput image as \"{}\"",
@@ -79,14 +78,6 @@ fn file_setup(path_str: &str) -> File {
     std::fs::create_dir_all(prefix).expect("Cannot create all the parents");
 
     File::create(path).unwrap()
-}
-
-fn progress_bar_setup(height: u32) -> ProgressBar {
-    if option_env!("CI").unwrap_or_default() == "true" {
-        ProgressBar::hidden()
-    } else {
-        ProgressBar::new((height) as u64)
-    }
 }
 
 #[allow(dead_code)]

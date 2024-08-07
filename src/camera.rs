@@ -6,6 +6,9 @@ use image::RgbImage;
 use crate::common::*;
 use crate::hittable_list::HittableList;
 
+use std::thread;
+use std::sync::{Arc, Mutex};
+
 #[allow(dead_code)]
 pub struct Camera {
     // === Hyper Parameters ===
@@ -125,10 +128,9 @@ impl Camera {
         }
     }
 
-    pub fn render(&self, world: &HittableList, img: &mut RgbImage, progress: &mut ProgressBar) {
-
-        // ppm_header(out, self.image_width, self.image_height);
-
+    pub fn render(&self, world: &HittableList, img: &mut RgbImage) {
+        let progress = progress_bar_setup(self.image_height());
+        // single thread
         for j in (0..self.image_height).rev() {
             for i in 0..self.image_width {
                 let mut pixel_color = Color::from(0.0, 0.0, 0.0);
@@ -197,5 +199,69 @@ impl Camera {
         let px = -0.5 + rand::thread_rng().gen_range(0.0..1.0);
         let py = -0.5 + rand::thread_rng().gen_range(0.0..1.0);
         return (px * self.pixel_delta_u) + (py * self.pixel_delta_v);
+    }
+}
+
+fn render_multi_threads(this: Arc<Mutex<Camera>>, world: &HittableList, img: &mut RgbImage) {
+
+    let (height, width, spp, max_depth) = {
+        let x = this.lock().unwrap();
+        (x.image_height, x.image_width, x.samples_per_pixel, x.max_depth)
+    };
+
+    let progress = progress_bar_setup(width);
+
+    let mut handles = vec![];
+    let pixel_counter = Arc::new(Mutex::new(0));
+    let progress = Arc::new(Mutex::new(progress));
+    let world = Arc::new(Mutex::new(world));
+    let img = Arc::new(Mutex::new(img));
+
+    for j in (0..height).rev() {
+        let pixel_counter = Arc::clone(&pixel_counter);
+        let progress = Arc::clone(&progress);
+        let world = Arc::clone(&world);
+        let img = Arc::clone(&img);
+
+        let this = Arc::clone(&this);
+
+        let handle = thread::spawn(move || {
+            for i in 0..width {
+                let mut pixel_color = Color::from(0.0, 0.0, 0.0);
+                for _ in 0..spp {
+                    let ray = {
+                        (*this.lock().unwrap()).get_ray(i, j)
+                    };
+                    // pixel_color += Camera::ray_color(&ray, max_depth, *world.lock().unwrap());
+                }
+                // // write_color(out, pixel_color, self.samples_per_pixel);
+                let pixel = (*img.lock().unwrap()).get_pixel_mut(i, j);
+                // *pixel = image::Rgb(transform_color(pixel_color, self.samples_per_pixel));
+
+                // prograss bar
+                let mut cnt = pixel_counter.lock().unwrap();
+                *cnt += 1;
+                if *cnt >= width {
+                    *cnt -= width;
+                    (*progress.lock().unwrap()).inc(1);
+                }
+            }
+        });
+        handles.push(handle);
+    }
+
+    // wait for all threads done
+    for handle in handles {
+        handle.join().unwrap();
+    }
+    // progress bar
+    (*Arc::clone(&progress).lock().unwrap()).finish();
+}
+
+fn progress_bar_setup(height: u32) -> ProgressBar {
+    if option_env!("CI").unwrap_or_default() == "true" {
+        ProgressBar::hidden()
+    } else {
+        ProgressBar::new((height) as u64)
     }
 }
